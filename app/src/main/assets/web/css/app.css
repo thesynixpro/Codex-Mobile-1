@@ -902,6 +902,63 @@ html, body {
   border-color: var(--accent-purple);
 }
 
+#chat-cancel-btn {
+  background-color: #dc2626;
+  border: 1px solid #ef4444;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 14px;
+  height: 48px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+#chat-cancel-btn:hover {
+  background-color: #b91c1c;
+}
+
+.chat-inline-cancel-row {
+  margin-top: 8px;
+}
+
+.chat-inline-cancel-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background-color: rgba(220, 38, 38, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.chat-inline-cancel-btn:hover {
+  background-color: rgba(220, 38, 38, 0.3);
+  color: #ffffff;
+  border-color: #ef4444;
+}
+
+.ai-cancelled-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 4px 0;
+  font-style: italic;
+}
+
 /* Terminal Console Panel */
 .panel-terminal {
   height: 180px;

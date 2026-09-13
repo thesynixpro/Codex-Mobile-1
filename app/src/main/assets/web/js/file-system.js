@@ -35,6 +35,20 @@ const FileSystem = {
     return !!(this.currentProject && this.currentProject.name);
   },
 
+  ensureProject(defaultName = 'My App') {
+    if (!this.hasProject()) {
+      this.currentProject = {
+        name: defaultName,
+        type: 'memory',
+        rootUri: null,
+        handle: null
+      };
+      if (!this.files) this.files = {};
+      this.notify();
+    }
+    return this.currentProject;
+  },
+
   subscribe(listener) {
     this.listeners.push(listener);
   },
@@ -601,6 +615,26 @@ const FileSystem = {
   },
 
   async loadAllFilesContent() {
+    // 1. Sync any open tabs in the editor first so unsaved edits (e.g. CSS, JS, HTML) are included
+    if (window.Editor && Array.isArray(window.Editor.openTabs)) {
+      for (const tab of window.Editor.openTabs) {
+        const liveContent = (tab.path === window.Editor.activeTabPath && window.Editor.textarea)
+          ? window.Editor.textarea.value
+          : tab.content;
+        if (this.files[tab.path]) {
+          this.files[tab.path].content = liveContent;
+        } else {
+          this.files[tab.path] = {
+            name: tab.name || tab.path.split('/').pop(),
+            path: tab.path,
+            content: liveContent,
+            isDir: false,
+            isDirty: false
+          };
+        }
+      }
+    }
+
     const filePaths = Object.keys(this.files).filter(p => !this.files[p].isDir);
     const result = {};
 
@@ -609,7 +643,15 @@ const FileSystem = {
       if (file.content === null) {
         try {
           if (this.currentProject && this.currentProject.type === 'native' && this.currentProject.rootUri) {
-            file.content = await window.Bridge.readRelativeFile(this.currentProject.rootUri, p);
+            try {
+              file.content = await window.Bridge.readRelativeFile(this.currentProject.rootUri, p);
+            } catch (relErr) {
+              if (file.uri) {
+                file.content = await window.Bridge.readFile(file.uri);
+              } else {
+                throw relErr;
+              }
+            }
           } else if (this.currentProject && this.currentProject.type === 'fsa' && file.handle) {
             const fObj = await file.handle.getFile();
             file.content = await fObj.text();
@@ -621,7 +663,7 @@ const FileSystem = {
           file.content = "";
         }
       }
-      result[p] = file.content || "";
+      result[p] = file.content !== null && file.content !== undefined ? file.content : "";
     }
     return result;
   },

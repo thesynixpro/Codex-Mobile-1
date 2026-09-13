@@ -515,6 +515,7 @@ class AndroidBridge(
                     val textContent = jsonObject.getString(key)
                     filesMap[key] = textContent.toByteArray(Charsets.UTF_8)
                 }
+                android.util.Log.i("AndroidBridge", "buildApk received ${filesMap.size} files: ${filesMap.keys}")
 
                 val persistedUriStr = activity.getPersistedProjectUri()
                 val persistedUri = if (!persistedUriStr.isNullOrBlank()) Uri.parse(persistedUriStr) else null

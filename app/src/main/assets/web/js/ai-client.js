@@ -2,11 +2,26 @@
 const AIClient = {
   conversationHistory: [], // array of { role: 'user' | 'assistant' | 'system', content: string }
   isGenerating: false,
+  currentAbortController: null,
   selectedContextFiles: new Set(),
   ignoreActiveFileContext: false,
 
   init() {
     this.conversationHistory = [];
+    this.currentAbortController = null;
+  },
+
+  cancelGeneration() {
+    if (this.currentAbortController) {
+      try {
+        this.currentAbortController.abort();
+      } catch (e) {}
+      this.currentAbortController = null;
+    }
+    this.isGenerating = false;
+    if (window.Terminal) {
+      window.Terminal.log("AI generation cancelled by user.", "system");
+    }
   },
 
   // Test endpoint connection and auth
@@ -258,7 +273,8 @@ IMPORTANT DIRECTIVES FOR CODEX AI:
               model,
               messages: followUpMessages,
               temperature: 0.2
-            })
+            }),
+            signal: this.currentAbortController ? this.currentAbortController.signal : undefined
           });
           if (followUpResp.ok) {
             const followUpData = await followUpResp.json();
@@ -268,6 +284,7 @@ IMPORTANT DIRECTIVES FOR CODEX AI:
             }
           }
         } catch (e) {
+          if (e.name === 'AbortError') throw e;
           console.warn("Tool follow-up resolution failed", e);
         }
       }
@@ -310,6 +327,8 @@ IMPORTANT DIRECTIVES FOR CODEX AI:
     }
 
     this.isGenerating = true;
+    this.currentAbortController = new AbortController();
+    const abortSignal = this.currentAbortController.signal;
 
     if (window.Terminal) {
       window.Terminal.log(`Dispatching AI prompt to model ${model} at ${baseUrl}...`, "api");
@@ -323,7 +342,8 @@ IMPORTANT DIRECTIVES FOR CODEX AI:
           model,
           messages,
           temperature: 0.2
-        })
+        }),
+        signal: abortSignal
       });
 
       if (!response.ok) {
@@ -363,12 +383,18 @@ IMPORTANT DIRECTIVES FOR CODEX AI:
 
       return assistantMessage;
     } catch (err) {
+      if (err.name === 'AbortError' || abortSignal.aborted) {
+        const cancelErr = new Error("Generation cancelled by user.");
+        cancelErr.isCancelled = true;
+        throw cancelErr;
+      }
       if (window.Terminal) {
         window.Terminal.log(`AI Request failed: ${err.message}`, "error");
       }
       throw err;
     } finally {
       this.isGenerating = false;
+      this.currentAbortController = null;
     }
   },
 

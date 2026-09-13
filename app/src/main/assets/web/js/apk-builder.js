@@ -371,7 +371,8 @@ const ApkBuilder = {
     try {
       this.appendLog(`Collecting project files for "${projName}"...`, "info");
       const filesMap = await window.FileSystem.loadAllFilesContent();
-      this.appendLog(`Loaded ${Object.keys(filesMap).length} project files into memory.`, "info");
+      const fileNames = Object.keys(filesMap);
+      this.appendLog(`Loaded ${fileNames.length} project files into memory: ${fileNames.join(', ')}`, "info");
 
       if (window.Bridge && window.Bridge.isAvailable()) {
         const result = await window.Bridge.buildApk(projName, filesMap, (progress) => {

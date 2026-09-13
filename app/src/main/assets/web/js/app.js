@@ -471,9 +471,52 @@ const App = {
     if (term) term.classList.toggle('collapsed');
   },
 
+  activeChatLoadingEl: null,
+
+  setChatGeneratingState(isGenerating, loadingEl = null) {
+    const sendBtn = document.getElementById('chat-send-btn');
+    const cancelBtn = document.getElementById('chat-cancel-btn');
+    if (isGenerating) {
+      if (sendBtn) sendBtn.style.display = 'none';
+      if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+      this.activeChatLoadingEl = loadingEl;
+    } else {
+      if (sendBtn) sendBtn.style.display = 'inline-flex';
+      if (cancelBtn) cancelBtn.style.display = 'none';
+      this.activeChatLoadingEl = null;
+    }
+  },
+
+  cancelCurrentGeneration() {
+    if (window.AIClient && typeof window.AIClient.cancelGeneration === 'function') {
+      window.AIClient.cancelGeneration();
+    }
+    if (window.BackgroundTasks && window.BackgroundTasks.activeTasks && window.BackgroundTasks.activeTasks.length > 0) {
+      const t = window.BackgroundTasks.activeTasks[0];
+      window.BackgroundTasks.dismissTask(t.id);
+    }
+    if (this.activeChatLoadingEl) {
+      this.activeChatLoadingEl.classList.remove('loading');
+      this.activeChatLoadingEl.classList.add('cancelled');
+      const timeEl = this.activeChatLoadingEl.querySelector('.message-time');
+      if (timeEl) timeEl.textContent = 'Cancelled';
+      const bodyEl = this.activeChatLoadingEl.querySelector('.message-body');
+      if (bodyEl) {
+        bodyEl.innerHTML = `
+          <div class="ai-cancelled-box">
+            ${Icons.x} <span>Generation cancelled by user.</span>
+          </div>
+        `;
+      }
+    }
+    this.setChatGeneratingState(false);
+    this.showToast("Generation cancelled");
+  },
+
   bindChatUI() {
     const chatInput = document.getElementById('chat-prompt-input');
     const sendBtn = document.getElementById('chat-send-btn');
+    const cancelBtn = document.getElementById('chat-cancel-btn');
     const clearChatBtn = document.getElementById('chat-clear-btn');
 
     const handleSend = () => {
@@ -484,6 +527,7 @@ const App = {
     };
 
     if (sendBtn) sendBtn.addEventListener('click', handleSend);
+    if (cancelBtn) cancelBtn.addEventListener('click', () => this.cancelCurrentGeneration());
     if (chatInput) {
       chatInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -546,11 +590,9 @@ const App = {
     const msgList = document.getElementById('chat-messages-list');
     if (!msgList) return;
 
-    // Check project selected
+    // Ensure active workspace or project exists so chat can proceed immediately
     if (!window.FileSystem.hasProject()) {
-      this.showToast("Please choose a Project Directory first.");
-      window.FileSystem.openProjectDirectory();
-      return;
+      window.FileSystem.ensureProject("My App");
     }
 
     // Append user message
@@ -610,20 +652,32 @@ const App = {
       }
     }
 
-    // Append loading placeholder
+    // Append loading placeholder with inline Cancel button
     const loadingMsgEl = document.createElement('div');
     loadingMsgEl.className = 'chat-message message-assistant loading';
     loadingMsgEl.innerHTML = `
       <div class="message-header">
         <span class="message-author">${Icons.sparkles} Codex AI</span>
-        <span class="message-time">Analyzing project...</span>
+        <span class="message-time">Generating response...</span>
       </div>
       <div class="message-body">
         <div class="loading-dots"><span></span><span></span><span></span></div>
+        <div class="chat-inline-cancel-row">
+          <button type="button" class="chat-inline-cancel-btn" title="Cancel generation">
+            ${Icons.x} <span>Cancel Request</span>
+          </button>
+        </div>
       </div>
     `;
     msgList.appendChild(loadingMsgEl);
     msgList.scrollTop = msgList.scrollHeight;
+
+    const inlineCancelBtn = loadingMsgEl.querySelector('.chat-inline-cancel-btn');
+    if (inlineCancelBtn) {
+      inlineCancelBtn.addEventListener('click', () => this.cancelCurrentGeneration());
+    }
+
+    this.setChatGeneratingState(true, loadingMsgEl);
 
     try {
       const responseText = await window.AIClient.sendMessage(promptText, actionType);
@@ -696,6 +750,22 @@ const App = {
       }
 
     } catch (err) {
+      if (err.isCancelled || err.name === 'AbortError') {
+        loadingMsgEl.classList.remove('loading');
+        loadingMsgEl.classList.add('cancelled');
+        const timeEl = loadingMsgEl.querySelector('.message-time');
+        if (timeEl) timeEl.textContent = "Cancelled";
+        const bodyEl = loadingMsgEl.querySelector('.message-body');
+        if (bodyEl) {
+          bodyEl.innerHTML = `
+            <div class="ai-cancelled-box">
+              ${Icons.x} <span>Generation cancelled by user.</span>
+            </div>
+          `;
+        }
+        return;
+      }
+
       loadingMsgEl.classList.remove('loading');
       loadingMsgEl.classList.add('error');
       loadingMsgEl.querySelector('.message-time').textContent = "Failed";
@@ -707,9 +777,10 @@ const App = {
           <div class="ai-error-hint">Verify endpoint configuration, API key, and model name in Settings.</div>
         </div>
       `;
+    } finally {
+      this.setChatGeneratingState(false);
+      msgList.scrollTop = msgList.scrollHeight;
     }
-
-    msgList.scrollTop = msgList.scrollHeight;
   },
 
   renderMarkdown(text) {
