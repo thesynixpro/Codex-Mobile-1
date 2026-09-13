@@ -17,9 +17,12 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.security.KeyFactory
 import java.security.KeyStore
 import java.security.PrivateKey
+import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import java.security.spec.PKCS8EncodedKeySpec
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -252,26 +255,66 @@ object ApkBuildHelper {
     }
 
     private fun signApkWithDebugKey(context: Context, inApk: File, outApk: File) {
-        val ks = KeyStore.getInstance("PKCS12")
+        var privateKey: PrivateKey? = null
+        var cert: X509Certificate? = null
+
+        // Priority 1: Load directly from PKCS#8 (.pk8) and X.509 PEM (.x509.pem)
+        // Standard Android build key format that does not depend on Java Keystore providers
         try {
-            context.assets.open("templates/debug.keystore").use { isr ->
-                ks.load(isr, "android".toCharArray())
+            val keyBytes = context.assets.open("templates/debug.pk8").use { it.readBytes() }
+            val kf = KeyFactory.getInstance("RSA")
+            privateKey = kf.generatePrivate(PKCS8EncodedKeySpec(keyBytes))
+
+            val cf = CertificateFactory.getInstance("X.509")
+            cert = try {
+                context.assets.open("templates/debug.x509.pem").use {
+                    cf.generateCertificate(it) as X509Certificate
+                }
+            } catch (_: Exception) {
+                context.assets.open("templates/debug.crt").use {
+                    cf.generateCertificate(it) as X509Certificate
+                }
             }
         } catch (e: Exception) {
-            // Fallback to JKS
-            val jks = KeyStore.getInstance("JKS")
-            context.assets.open("templates/debug.keystore").use { isr ->
-                jks.load(isr, "android".toCharArray())
-            }
-            return signWithLoadedKeyStore(jks, inApk, outApk)
+            android.util.Log.w("ApkBuildHelper", "Could not load debug.pk8 / debug.x509.pem: ${e.message}")
         }
-        signWithLoadedKeyStore(ks, inApk, outApk)
+
+        // Priority 2: Load from PKCS12 (.keystore)
+        if (privateKey == null || cert == null) {
+            try {
+                val ks = KeyStore.getInstance("PKCS12")
+                context.assets.open("templates/debug.keystore").use { isr ->
+                    ks.load(isr, "android".toCharArray())
+                }
+                privateKey = ks.getKey("androiddebugkey", "android".toCharArray()) as? PrivateKey
+                cert = ks.getCertificate("androiddebugkey") as? X509Certificate
+            } catch (e: Exception) {
+                android.util.Log.w("ApkBuildHelper", "Could not load PKCS12 keystore: ${e.message}")
+            }
+        }
+
+        // Priority 3: Load from BKS (.keystore) if BouncyCastle is present
+        if (privateKey == null || cert == null) {
+            try {
+                val ks = KeyStore.getInstance("BKS")
+                context.assets.open("templates/debug.keystore").use { isr ->
+                    ks.load(isr, "android".toCharArray())
+                }
+                privateKey = ks.getKey("androiddebugkey", "android".toCharArray()) as? PrivateKey
+                cert = ks.getCertificate("androiddebugkey") as? X509Certificate
+            } catch (e: Exception) {
+                android.util.Log.w("ApkBuildHelper", "Could not load BKS keystore: ${e.message}")
+            }
+        }
+
+        if (privateKey == null || cert == null) {
+            throw IllegalStateException("Failed to load Android debug signing certificate and key")
+        }
+
+        signWithPrivateKeyAndCert(privateKey, cert, inApk, outApk)
     }
 
-    private fun signWithLoadedKeyStore(keyStore: KeyStore, inApk: File, outApk: File) {
-        val privateKey = keyStore.getKey("androiddebugkey", "android".toCharArray()) as PrivateKey
-        val cert = keyStore.getCertificate("androiddebugkey") as X509Certificate
-
+    private fun signWithPrivateKeyAndCert(privateKey: PrivateKey, cert: X509Certificate, inApk: File, outApk: File) {
         val signerConfig = ApkSigner.SignerConfig.Builder(
             "debug",
             privateKey,
