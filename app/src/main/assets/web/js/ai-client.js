@@ -3,6 +3,7 @@ const AIClient = {
   conversationHistory: [], // array of { role: 'user' | 'assistant' | 'system', content: string }
   isGenerating: false,
   selectedContextFiles: new Set(),
+  ignoreActiveFileContext: false,
 
   init() {
     this.conversationHistory = [];
@@ -124,27 +125,42 @@ const AIClient = {
     }
   },
 
+  isConversational(prompt) {
+    if (!prompt) return false;
+    const clean = prompt.trim().toLowerCase();
+    return /^(hi|hello|hey|heya|howdy|sup|good\s+(morning|afternoon|evening)|who are you|what can you do|help|test|ok|thanks|thank you)[\s!.?]*$/i.test(clean);
+  },
+
   // Build context prompt with attached files and real project directory awareness
   buildContextMessage(userPrompt, actionType = 'custom') {
-    let contextHeader = '';
-
     const projName = window.FileSystem && window.FileSystem.currentProject
       ? window.FileSystem.currentProject.name
       : 'Active Project';
 
+    // Handle simple greetings conversationally without overloading the model with project modification rules
+    if (actionType === 'custom' && this.isConversational(userPrompt)) {
+      return `Current Active Project Folder: "${projName}"
+User greeting: "${userPrompt}"
+
+Instructions for Codex AI:
+Respond warmly and conversationally in clear Markdown. Introduce yourself as Codex AI, the mobile software engineer and architect. Let the user know you are ready to help them build features, edit files, review code, fix bugs, or build an APK for "${projName}".
+CRITICAL: Do NOT output XML tool calls, <function_calls>, <dots_function_call>, or <invoke> tags. Speak directly to the user.`;
+    }
+
+    let contextHeader = '';
     const projStructure = window.FileSystem ? window.FileSystem.getProjectStructureSummary() : '';
 
     contextHeader += `Current Active Project Folder: "${projName}"\n`;
     contextHeader += `Current Project Files:\n${projStructure}\n\n`;
 
-    // Attach active file or user-selected context files
+    // Attach active file or user-selected context files (unless actively ignored)
     const contextFiles = [];
     if (this.selectedContextFiles.size > 0) {
       for (const p of this.selectedContextFiles) {
         const content = window.FileSystem ? window.FileSystem.getFileContent(p) : null;
         if (content !== null) contextFiles.push({ path: p, content });
       }
-    } else if (window.FileSystem && window.FileSystem.activeFilePath) {
+    } else if (window.FileSystem && window.FileSystem.activeFilePath && !this.ignoreActiveFileContext) {
       const activePath = window.FileSystem.activeFilePath;
       const content = window.FileSystem.getFileContent(activePath);
       if (content !== null) contextFiles.push({ path: activePath, content });
@@ -161,7 +177,7 @@ const AIClient = {
     if (actionType === 'explain') {
       instruction = `Explain the following code clearly, highlighting key logic, architecture, and potential edge cases:\n\n${userPrompt}`;
     } else if (actionType === 'fix') {
-      instruction = `Inspect the following code for bugs, logic errors, or syntax issues. Propose fixed code for the project folder:\n\n${userPrompt}`;
+      instruction = `Inspect the following code or project for bugs, logic errors, syntax issues, and potential edge cases. Propose fixed code for the project folder:\n\n${userPrompt}`;
     } else if (actionType === 'refactor') {
       instruction = `Refactor the following code for cleaner structure, readability, and performance. Keep behavior intact:\n\n${userPrompt}`;
     } else if (actionType === 'generate') {
@@ -190,9 +206,74 @@ IMPORTANT DIRECTIVES FOR CODEX AI:
 
 3. Preserve clean and correct folder structures (e.g., css/style.css, js/app.js, src/...).
 4. Do NOT output truncated code or placeholders like "// rest of code unchanged". Provide the entire usable code for every created or modified file.
+5. CRITICAL: You do NOT have external XML function call tools. NEVER output XML tags, <function_calls>, <dots_function_call>, or <invoke> tags. Output code and explanations directly in Markdown.
 `;
 
     return `${contextHeader}${instruction}\n\n${rules}`;
+  },
+
+  sanitizeAiOutput(text) {
+    if (!text) return '';
+    let cleaned = text
+      .replace(/<dots_function_call>[\s\S]*?<\/dots_function_call>/gi, '')
+      .replace(/<dots_function_call>/gi, '')
+      .replace(/<\/dots_function_call>/gi, '')
+      .replace(/<function_calls>[\s\S]*?<\/function_calls>/gi, '')
+      .replace(/<function_calls>/gi, '')
+      .replace(/<\/function_calls>/gi, '')
+      .replace(/<invoke[^>]*>[\s\S]*?<\/invoke>/gi, '');
+
+    cleaned = cleaned.trim();
+    if (!cleaned) {
+      return "Hello! I am Codex, your mobile AI coding assistant. How can I help you with your project today? I can write code, create files, explain architecture, or build an APK.";
+    }
+    return cleaned;
+  },
+
+  async handleToolCallsOrSanitize(rawText, baseUrl, headers, model, messages) {
+    if (!rawText) return "No response generated by model.";
+
+    // Check if the model attempted an XML tool call to read a file
+    const readMatch = /<invoke\s+name=["'](?:read_file|get_file|cat)["']>[\s\S]*?<parameter\s+name=["']path["']>([\s\S]*?)<\/parameter>[\s\S]*?<\/invoke>/i.exec(rawText);
+    if (readMatch && window.FileSystem) {
+      const targetPath = readMatch[1].trim();
+      const content = window.FileSystem.getFileContent(targetPath);
+      if (content !== null) {
+        if (window.Terminal) {
+          window.Terminal.log(`Resolving AI tool call: read_file("${targetPath}")...`, "api");
+        }
+        try {
+          const followUpMessages = [
+            ...messages,
+            { role: 'assistant', content: rawText },
+            {
+              role: 'user',
+              content: `[Tool Result: Content of "${targetPath}"]:\n\`\`\`\n${content}\n\`\`\`\nPlease continue answering the user's prompt directly in clean Markdown without emitting XML tool tags or <function_calls>.`
+            }
+          ];
+          const followUpResp = await fetch(`${baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              model,
+              messages: followUpMessages,
+              temperature: 0.2
+            })
+          });
+          if (followUpResp.ok) {
+            const followUpData = await followUpResp.json();
+            const secondReply = followUpData.choices?.[0]?.message?.content;
+            if (secondReply) {
+              return this.sanitizeAiOutput(secondReply);
+            }
+          }
+        } catch (e) {
+          console.warn("Tool follow-up resolution failed", e);
+        }
+      }
+    }
+
+    return this.sanitizeAiOutput(rawText);
   },
 
   // Send message to AI endpoint
@@ -267,9 +348,11 @@ IMPORTANT DIRECTIVES FOR CODEX AI:
       }
 
       const data = await response.json();
-      const assistantMessage = data.choices && data.choices[0] && data.choices[0].message
+      const rawAssistantMessage = data.choices && data.choices[0] && data.choices[0].message
         ? data.choices[0].message.content
         : "No response generated by model.";
+
+      const assistantMessage = await this.handleToolCallsOrSanitize(rawAssistantMessage, baseUrl, headers, model, messages);
 
       this.conversationHistory.push({ role: 'user', content: prompt });
       this.conversationHistory.push({ role: 'assistant', content: assistantMessage });

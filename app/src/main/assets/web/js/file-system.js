@@ -284,6 +284,13 @@ const FileSystem = {
     const file = this.files[path];
     if (!file || file.isDir) return;
 
+    if (path.toLowerCase().endsWith('.apk')) {
+      if (window.ApkBuilder && typeof window.ApkBuilder.showApkFileActions === 'function') {
+        window.ApkBuilder.showApkFileActions(path);
+        return;
+      }
+    }
+
     if (file.content === null) {
       try {
         if (this.currentProject && this.currentProject.type === 'native' && this.currentProject.rootUri) {

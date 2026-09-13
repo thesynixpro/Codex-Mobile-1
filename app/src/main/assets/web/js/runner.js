@@ -21,7 +21,10 @@ const Runner = {
         <!-- Runner Top Navigation Bar -->
         <div class="runner-header">
           <div class="runner-header-left">
-            <span class="runner-badge">${Icons.play} Live Preview</span>
+            <button type="button" class="btn btn-icon btn-sm runner-header-cross-btn" id="runner-back-btn" title="Back to Editor / Close Preview" aria-label="Close Preview">
+              <span class="btn-icon-svg">${Icons.arrowLeft}</span>
+            </button>
+            <span class="runner-badge">${Icons.play} <span class="runner-badge-text">Preview</span></span>
             <select id="runner-file-select" class="runner-file-dropdown" title="Select entry file"></select>
             <button type="button" class="btn btn-sm btn-icon" id="runner-refresh-btn" title="Reload / Refresh Preview">
               <span class="btn-icon-svg">${Icons.refresh}</span>
@@ -41,7 +44,7 @@ const Runner = {
               <span class="btn-icon-svg">${Icons.terminal}</span>
               <span class="console-count-badge" id="runner-console-count">0</span>
             </button>
-            <button type="button" class="btn btn-icon btn-sm" id="runner-close-btn" title="Close Preview">
+            <button type="button" class="btn btn-icon btn-sm runner-close-btn" id="runner-close-btn" title="Close Preview" aria-label="Close Preview">
               <span class="btn-icon-svg">${Icons.close}</span>
             </button>
           </div>
@@ -49,6 +52,10 @@ const Runner = {
 
         <!-- Preview Stage Surface -->
         <div class="runner-body">
+          <button type="button" class="runner-floating-back-btn" id="runner-floating-close-btn" title="Back to Editor">
+            <span class="btn-icon-svg">${Icons.close}</span>
+            <span>Exit Preview</span>
+          </button>
           <div class="runner-viewport-wrapper mode-responsive" id="runner-viewport-wrapper">
             <iframe id="runner-iframe" class="runner-iframe" sandbox="allow-scripts allow-modals allow-forms allow-same-origin"></iframe>
           </div>
@@ -151,14 +158,18 @@ const Runner = {
 
   bindEvents() {
     const modal = document.getElementById('runner-modal');
+    const backBtn = document.getElementById('runner-back-btn');
     const closeBtn = document.getElementById('runner-close-btn');
+    const floatingCloseBtn = document.getElementById('runner-floating-close-btn');
     const refreshBtn = document.getElementById('runner-refresh-btn');
     const fileSelect = document.getElementById('runner-file-select');
     const toggleConsoleBtn = document.getElementById('runner-toggle-console-btn');
     const consoleClearBtn = document.getElementById('runner-console-clear-btn');
     const consoleCloseBtn = document.getElementById('runner-console-close-btn');
 
+    if (backBtn) backBtn.addEventListener('click', () => this.close());
     if (closeBtn) closeBtn.addEventListener('click', () => this.close());
+    if (floatingCloseBtn) floatingCloseBtn.addEventListener('click', () => this.close());
     if (refreshBtn) refreshBtn.addEventListener('click', () => this.reload());
 
     if (fileSelect) {
@@ -511,6 +522,8 @@ const Runner = {
   close() {
     const modal = document.getElementById('runner-modal');
     if (modal) modal.classList.remove('active');
+    const iframe = document.getElementById('runner-iframe');
+    if (iframe) iframe.srcdoc = '';
   }
 };
 

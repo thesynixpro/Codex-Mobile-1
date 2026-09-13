@@ -310,7 +310,13 @@ const App = {
 
       const iconSpan = document.createElement('span');
       iconSpan.className = 'tree-item-icon';
-      iconSpan.innerHTML = file.isDir ? Icons.folder : Icons.fileCode;
+      if (file.isDir) {
+        iconSpan.innerHTML = Icons.folder;
+      } else if (file.name.toLowerCase().endsWith('.apk')) {
+        iconSpan.innerHTML = Icons.android;
+      } else {
+        iconSpan.innerHTML = Icons.fileCode;
+      }
       itemEl.appendChild(iconSpan);
 
       const nameSpan = document.createElement('span');
@@ -391,10 +397,19 @@ const App = {
 
     if (selected.length === 0) {
       const activePath = window.FileSystem.activeFilePath;
-      if (activePath) {
+      if (activePath && !window.AIClient.ignoreActiveFileContext) {
         const chip = document.createElement('div');
         chip.className = 'context-chip auto-chip';
-        chip.innerHTML = `<span class="chip-icon">${Icons.file}</span> <span class="chip-label">${activePath} (active)</span>`;
+        chip.innerHTML = `
+          <span class="chip-icon">${Icons.file}</span>
+          <span class="chip-label">${activePath} (active)</span>
+          <button type="button" class="chip-remove-btn" title="Detach active file context" aria-label="Detach active file">${Icons.close}</button>
+        `;
+        chip.querySelector('.chip-remove-btn').addEventListener('click', (e) => {
+          e.stopPropagation();
+          window.AIClient.ignoreActiveFileContext = true;
+          this.updateContextChips();
+        });
         container.appendChild(chip);
       }
       return;
@@ -1267,6 +1282,21 @@ const App = {
   },
 
   onBackPress() {
+    const runnerModal = document.getElementById('runner-modal');
+    if (runnerModal && runnerModal.classList.contains('active')) {
+      if (window.Runner) window.Runner.close();
+      return true;
+    }
+    const termuxModal = document.getElementById('termux-runtime-modal');
+    if (termuxModal && termuxModal.classList.contains('active')) {
+      termuxModal.classList.remove('active');
+      return true;
+    }
+    const apkModal = document.getElementById('apk-modal');
+    if (apkModal && apkModal.classList.contains('active')) {
+      apkModal.classList.remove('active');
+      return true;
+    }
     const customModal = document.getElementById('custom-provider-modal');
     if (customModal && customModal.classList.contains('active')) {
       this.closeCustomProviderModal();
@@ -1314,6 +1344,12 @@ const App = {
 };
 
 window.App = App;
+window.handleAndroidBackPress = function() {
+  if (window.App && typeof window.App.onBackPress === 'function') {
+    return window.App.onBackPress();
+  }
+  return false;
+};
 window.addEventListener('DOMContentLoaded', () => {
   App.init();
 });

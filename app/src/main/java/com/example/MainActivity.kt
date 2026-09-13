@@ -113,9 +113,11 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED)
         super.onCreate(savedInstanceState)
-        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED)
+        window.setFlags(
+            android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+        )
         ensureWebViewCacheDirs()
         enableEdgeToEdge()
 
@@ -125,11 +127,9 @@ class MainActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
             setBackgroundColor(Color.parseColor("#090D13"))
-            setLayerType(View.LAYER_TYPE_SOFTWARE, null)
         }
 
         setContentView(rootContainer)
-        window.decorView.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
 
         ViewCompat.setOnApplyWindowInsetsListener(rootContainer) { view, insets ->
             val imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime())
@@ -150,19 +150,21 @@ class MainActivity : ComponentActivity() {
             override fun handleOnBackPressed() {
                 val wv = webView
                 if (wv != null) {
-                    wv.evaluateJavascript("window.handleAndroidBack && window.handleAndroidBack();") { result ->
+                    wv.evaluateJavascript("window.handleAndroidBack ? window.handleAndroidBack() : (window.handleAndroidBackPress ? window.handleAndroidBackPress() : false);") { result ->
                         if (result != "\"handled\"" && result != "true") {
                             if (wv.canGoBack()) {
                                 wv.goBack()
                             } else {
                                 isEnabled = false
                                 onBackPressedDispatcher.onBackPressed()
+                                isEnabled = true
                             }
                         }
                     }
                 } else {
                     isEnabled = false
                     onBackPressedDispatcher.onBackPressed()
+                    isEnabled = true
                 }
             }
         })
@@ -174,25 +176,13 @@ class MainActivity : ComponentActivity() {
             val codeCacheDir = File(webViewDir, "Default/HTTP Cache/Code Cache")
             val jsDir = File(codeCacheDir, "js")
             val wasmDir = File(codeCacheDir, "wasm")
-
-            // Remove any invalid subdirectories or stale fake indexes from previous attempts
             val jsIndex = File(jsDir, "index-dir")
             val wasmIndex = File(wasmDir, "index-dir")
-            if (jsIndex.exists() || wasmIndex.exists()) {
+
+            // If empty js or wasm directories were created without indexes, remove codeCacheDir so Chromium initializes clean
+            if ((jsDir.exists() && !jsIndex.exists()) || (wasmDir.exists() && !wasmIndex.exists())) {
                 codeCacheDir.deleteRecursively()
             }
-
-            // Ensure pure, clean empty leaf directories exist so opendir succeeds without triggering version upgrade
-            if (!jsDir.exists()) {
-                jsDir.mkdirs()
-            }
-            if (!wasmDir.exists()) {
-                wasmDir.mkdirs()
-            }
-
-            // Clean any files inside them to ensure Chromium treats them as a clean new cache
-            jsDir.listFiles()?.forEach { it.deleteRecursively() }
-            wasmDir.listFiles()?.forEach { it.deleteRecursively() }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -208,7 +198,6 @@ class MainActivity : ComponentActivity() {
             )
             setBackgroundColor(Color.parseColor("#090D13"))
             overScrollMode = View.OVER_SCROLL_NEVER
-            setLayerType(View.LAYER_TYPE_SOFTWARE, null)
         }
         webView = newWebView
         rootContainer.removeAllViews()

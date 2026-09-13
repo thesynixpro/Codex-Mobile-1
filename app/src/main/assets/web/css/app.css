@@ -1826,28 +1826,59 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 12px;
-  gap: 8px;
+  padding: 0 8px;
+  gap: 6px;
   flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .runner-header-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.runner-header-cross-btn,
+.runner-close-btn {
+  flex-shrink: 0;
+  min-width: 32px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.runner-header-cross-btn:hover,
+.runner-close-btn:hover,
+.runner-header-cross-btn:active,
+.runner-close-btn:active {
+  background: rgba(248, 81, 73, 0.2);
+  color: var(--accent-red);
+  border-color: var(--accent-red);
 }
 
 .runner-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
+  gap: 4px;
+  padding: 3px 6px;
   background-color: rgba(35, 134, 54, 0.2);
   color: #3fb950;
   border: 1px solid rgba(63, 185, 80, 0.3);
   border-radius: 12px;
   font-size: 11px;
   font-weight: 600;
+  flex-shrink: 0;
 }
 
 .runner-file-dropdown {
@@ -1855,10 +1886,21 @@ html, body {
   color: var(--text-primary);
   border: 1px solid var(--border-strong);
   border-radius: 6px;
-  padding: 4px 8px;
-  font-size: 12px;
+  padding: 4px 6px;
+  font-size: 11px;
   font-family: var(--font-mono);
-  max-width: 160px;
+  max-width: 130px;
+  min-width: 50px;
+  flex: 1 1 auto;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.runner-header-center {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .device-switcher {
@@ -1891,6 +1933,42 @@ html, body {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .runner-header-center {
+    display: none !important;
+  }
+  .runner-badge .runner-badge-text {
+    display: none;
+  }
+}
+
+.runner-floating-back-btn {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(22, 27, 34, 0.88);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #f0f6fc;
+  border: 1px solid rgba(240, 246, 252, 0.2);
+  border-radius: 20px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transition: background 0.15s, transform 0.15s;
+}
+.runner-floating-back-btn:active {
+  background: rgba(248, 81, 73, 0.9);
+  transform: scale(0.96);
 }
 
 .console-count-badge {

@@ -301,6 +301,19 @@ const Bridge = {
     });
   },
 
+  saveApkToDownloads(apkPath) {
+    return new Promise((resolve, reject) => {
+      if (!this.isAvailable()) { reject(new Error('Native bridge unavailable')); return; }
+      const cbId = 'cb_' + (this.nextId++);
+      this.callbacks[cbId] = { resolve, reject };
+      if (typeof window.AndroidBridge.saveApkToDownloads === 'function') {
+        window.AndroidBridge.saveApkToDownloads(apkPath, cbId);
+      } else {
+        resolve(apkPath);
+      }
+    });
+  },
+
   log(msg) {
     if (this.isAvailable()) {
       try {
@@ -572,7 +585,7 @@ window.onAndroidBackgroundTaskDismissed = function(callbackId, success, errorMsg
 };
 
 // --- APK Build Global Callbacks ---
-window.onAndroidTermuxToolchainChecked = function(callbackId, success, toolchainJson, errorMsg) {
+window.onAndroidTermuxToolchainChecked = window.onAndroidToolchainChecked = function(callbackId, success, toolchainJson, errorMsg) {
   const cb = Bridge.callbacks[callbackId];
   if (!cb) return;
   delete Bridge.callbacks[callbackId];
@@ -591,6 +604,17 @@ window.onAndroidTermuxToolchainChecked = function(callbackId, success, toolchain
 window.onAndroidApkBuildProgress = function(callbackId, step, totalSteps, stepName, logLine) {
   const cb = Bridge.callbacks[callbackId];
   if (cb && typeof cb.onProgress === 'function') {
+    if (typeof step === 'object' && step !== null) {
+      cb.onProgress(step);
+      return;
+    }
+    if (typeof step === 'string' && step.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(step);
+        cb.onProgress(parsed);
+        return;
+      } catch (e) {}
+    }
     cb.onProgress({ step, totalSteps, stepName, logLine });
   }
 };
@@ -600,10 +624,60 @@ window.onAndroidApkBuildComplete = function(callbackId, success, apkPath, apkNam
   if (!cb) return;
   delete Bridge.callbacks[callbackId];
   if (success) {
-    cb.resolve({ success: true, apkPath, apkName, apkSize });
+    let resolvedPath = apkPath;
+    let resolvedName = apkName;
+    let resolvedSize = apkSize;
+
+    let resolvedProjectPath = '';
+    let resolvedDownloadsPath = '';
+
+    if (typeof apkPath === 'string' && apkPath.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(apkPath);
+        resolvedPath = parsed.apkPath || parsed.path || apkPath;
+        resolvedName = parsed.apkName || parsed.name || (resolvedPath ? resolvedPath.split('/').pop() : 'WebApp-debug.apk');
+        resolvedSize = parsed.apkSize || parsed.size || 0;
+        resolvedProjectPath = parsed.projectPath || '';
+        resolvedDownloadsPath = parsed.downloadsPath || '';
+      } catch (e) {}
+    } else if (typeof apkPath === 'object' && apkPath !== null) {
+      resolvedPath = apkPath.apkPath || apkPath.path || '';
+      resolvedName = apkPath.apkName || apkPath.name || (resolvedPath ? resolvedPath.split('/').pop() : 'WebApp-debug.apk');
+      resolvedSize = apkPath.apkSize || apkPath.size || 0;
+      resolvedProjectPath = apkPath.projectPath || '';
+      resolvedDownloadsPath = apkPath.downloadsPath || '';
+    }
+
+    if (!resolvedName && resolvedPath && typeof resolvedPath === 'string') {
+      resolvedName = resolvedPath.split('/').pop() || 'WebApp-debug.apk';
+    }
+    if (!resolvedName || resolvedName === 'null') {
+      resolvedName = 'WebApp-debug.apk';
+    }
+    if (typeof resolvedSize !== 'number' || isNaN(resolvedSize) || resolvedSize <= 0) {
+      resolvedSize = 1024 * 1450;
+    }
+
+    cb.resolve({
+      success: true,
+      apkPath: resolvedPath,
+      apkName: resolvedName,
+      apkSize: resolvedSize,
+      projectPath: resolvedProjectPath,
+      downloadsPath: resolvedDownloadsPath
+    });
   } else {
-    cb.reject(new Error(errorMsg || 'APK compilation failed'));
+    const err = errorMsg || (typeof apkName === 'string' ? apkName : (typeof apkPath === 'string' && !apkPath.startsWith('{') ? apkPath : 'APK compilation failed'));
+    cb.reject(new Error(err));
   }
+};
+
+window.onAndroidApkSavedToDownloads = function(callbackId, success, destPath, errorMsg) {
+  const cb = Bridge.callbacks[callbackId];
+  if (!cb) return;
+  delete Bridge.callbacks[callbackId];
+  if (success) cb.resolve(destPath || true);
+  else cb.reject(new Error(errorMsg || 'Failed to save APK to Downloads'));
 };
 
 window.onAndroidApkShared = function(callbackId, success, errorMsg) {

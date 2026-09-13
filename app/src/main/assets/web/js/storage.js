@@ -160,7 +160,7 @@ const Storage = {
       activeProviderId: this.getActiveProviderId(),
       customHeaders: this.getCustomHeaders(),
       systemPrompt: localStorage.getItem('codex_ai_system_prompt') || 
-        'You are Codex, an expert software engineer and architect. When proposing code changes, clearly indicate the exact file path and use code fences with diff-friendly blocks so changes can be cleanly applied. Write clean, idiomatic code without unnecessary explanations.',
+        'You are Codex, an expert software engineer and architect on Android. CRITICAL: You do not have external XML function call tools. Never output XML tool tags, <function_calls>, <dots_function_call>, or <invoke>. Converse directly in clear Markdown. When proposing code changes, clearly indicate the exact file path and action format (### Action: CREATE, ### Action: MODIFY). Write clean, production-grade code.',
       fontSize: parseInt(localStorage.getItem('codex_editor_font_size') || '14', 10),
       tabSize: parseInt(localStorage.getItem('codex_editor_tab_size') || '2', 10),
       wordWrap: localStorage.getItem('codex_editor_word_wrap') === 'true'

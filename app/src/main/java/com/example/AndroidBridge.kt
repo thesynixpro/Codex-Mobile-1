@@ -499,7 +499,7 @@ class AndroidBridge(
                 put("setupScript", toolchain.setupScript)
             }
             val escaped = JSONObject.quote(obj.toString())
-            evaluateJs("window.onAndroidToolchainChecked && window.onAndroidToolchainChecked(\"$callbackId\", true, $escaped, null)")
+            evaluateJs("if (window.onAndroidTermuxToolchainChecked) window.onAndroidTermuxToolchainChecked(\"$callbackId\", true, $escaped, null); if (window.onAndroidToolchainChecked) window.onAndroidToolchainChecked(\"$callbackId\", true, $escaped, null);")
         }
     }
 
@@ -516,11 +516,17 @@ class AndroidBridge(
                     filesMap[key] = textContent.toByteArray(Charsets.UTF_8)
                 }
 
-                val builtApk = ApkBuildHelper.buildWebApk(
+                val persistedUriStr = activity.getPersistedProjectUri()
+                val persistedUri = if (!persistedUriStr.isNullOrBlank()) Uri.parse(persistedUriStr) else null
+
+                val builtResult = ApkBuildHelper.buildWebApk(
                     context = activity,
                     projectName = projectName,
-                    projectFilesMap = filesMap
+                    projectFilesMap = filesMap,
+                    persistedRootUri = persistedUri
                 ) { step, total, stepName, logLine ->
+                    val stepNameEsc = JSONObject.quote(stepName)
+                    val logLineEsc = JSONObject.quote(logLine)
                     val progressObj = JSONObject().apply {
                         put("step", step)
                         put("totalSteps", total)
@@ -528,21 +534,52 @@ class AndroidBridge(
                         put("logLine", logLine)
                     }
                     val esc = JSONObject.quote(progressObj.toString())
-                    evaluateJs("window.onAndroidApkBuildProgress && window.onAndroidApkBuildProgress(\"$callbackId\", $esc)")
+                    evaluateJs("window.onAndroidApkBuildProgress && window.onAndroidApkBuildProgress(\"$callbackId\", $step, $total, $stepNameEsc, $logLineEsc, $esc)")
                 }
+
+                val builtApk = builtResult.file
+                val apkPathEsc = JSONObject.quote(builtApk.absolutePath)
+                val apkNameEsc = JSONObject.quote(builtApk.name)
+                val apkSize = builtApk.length()
+                val projectRelPathEsc = JSONObject.quote(builtResult.projectRelativePath)
+                val downloadsPathEsc = JSONObject.quote(builtResult.downloadsPath)
 
                 val resultObj = JSONObject().apply {
                     put("success", true)
                     put("apkPath", builtApk.absolutePath)
                     put("apkName", builtApk.name)
-                    put("apkSize", builtApk.length())
+                    put("apkSize", apkSize)
+                    put("projectPath", builtResult.projectRelativePath)
+                    put("downloadsPath", builtResult.downloadsPath)
                 }
                 val esc = JSONObject.quote(resultObj.toString())
-                evaluateJs("window.onAndroidApkBuildComplete && window.onAndroidApkBuildComplete(\"$callbackId\", true, $esc, null)")
+                evaluateJs("window.onAndroidApkBuildComplete && window.onAndroidApkBuildComplete(\"$callbackId\", true, $apkPathEsc, $apkNameEsc, $apkSize, null, $esc)")
             } catch (e: Exception) {
                 e.printStackTrace()
                 val err = JSONObject.quote(e.message ?: "Build failed")
-                evaluateJs("window.onAndroidApkBuildComplete && window.onAndroidApkBuildComplete(\"$callbackId\", false, null, $err)")
+                evaluateJs("window.onAndroidApkBuildComplete && window.onAndroidApkBuildComplete(\"$callbackId\", false, null, null, 0, $err)")
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun saveApkToDownloads(apkPath: String, callbackId: String) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                var file = File(apkPath)
+                if (!file.exists()) {
+                    val candidate = File(activity.cacheDir, "built_apks/${File(apkPath).name}")
+                    if (candidate.exists()) file = candidate
+                }
+                if (!file.exists()) {
+                    throw IllegalStateException("APK file not found at $apkPath")
+                }
+                val dest = ApkBuildHelper.saveApkToDownloads(activity, file)
+                val destEsc = JSONObject.quote(dest)
+                evaluateJs("window.onAndroidApkSavedToDownloads && window.onAndroidApkSavedToDownloads(\"$callbackId\", true, $destEsc, null)")
+            } catch (e: Exception) {
+                val err = JSONObject.quote(e.message ?: "Failed to save APK to Downloads")
+                evaluateJs("window.onAndroidApkSavedToDownloads && window.onAndroidApkSavedToDownloads(\"$callbackId\", false, null, $err)")
             }
         }
     }
@@ -551,7 +588,11 @@ class AndroidBridge(
     fun shareApk(apkPath: String, callbackId: String) {
         activity.runOnUiThread {
             try {
-                val file = File(apkPath)
+                var file = File(apkPath)
+                if (!file.exists()) {
+                    val candidate = File(activity.cacheDir, "built_apks/${File(apkPath).name}")
+                    if (candidate.exists()) file = candidate
+                }
                 if (!file.exists()) {
                     throw IllegalStateException("APK file not found at $apkPath")
                 }
@@ -568,7 +609,11 @@ class AndroidBridge(
     fun installApk(apkPath: String, callbackId: String) {
         activity.runOnUiThread {
             try {
-                val file = File(apkPath)
+                var file = File(apkPath)
+                if (!file.exists()) {
+                    val candidate = File(activity.cacheDir, "built_apks/${File(apkPath).name}")
+                    if (candidate.exists()) file = candidate
+                }
                 if (!file.exists()) {
                     throw IllegalStateException("APK file not found at $apkPath")
                 }

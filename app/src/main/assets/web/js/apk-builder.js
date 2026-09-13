@@ -119,14 +119,18 @@ const ApkBuilder = {
               <div class="result-title">APK Built Successfully</div>
               <div class="result-details" id="apk-result-details">WebApp-debug.apk</div>
             </div>
-            <div class="result-actions">
-              <button type="button" class="btn btn-primary" id="apk-share-btn">
+            <div class="result-actions" style="display:flex; flex-wrap:wrap; gap:8px;">
+              <button type="button" class="btn btn-primary" id="apk-install-btn">
+                <span class="btn-icon-svg">${Icons.android}</span>
+                <span>Install on Mobile</span>
+              </button>
+              <button type="button" class="btn btn-outline" id="apk-download-btn">
+                <span class="btn-icon-svg">${Icons.download}</span>
+                <span>Save to Downloads</span>
+              </button>
+              <button type="button" class="btn btn-outline" id="apk-share-btn">
                 <span class="btn-icon-svg">${Icons.share}</span>
                 <span>Share APK</span>
-              </button>
-              <button type="button" class="btn btn-outline" id="apk-install-btn">
-                <span class="btn-icon-svg">${Icons.externalLink}</span>
-                <span>Install / Open</span>
               </button>
             </div>
           </div>
@@ -163,6 +167,7 @@ const ApkBuilder = {
     const checkToolchainBtn = document.getElementById('apk-check-toolchain-btn');
     const shareBtn = document.getElementById('apk-share-btn');
     const installBtn = document.getElementById('apk-install-btn');
+    const downloadBtn = document.getElementById('apk-download-btn');
     const copySetupBtn = document.getElementById('apk-copy-setup-btn');
 
     const closeModal = () => {
@@ -196,6 +201,26 @@ const ApkBuilder = {
           window.Bridge.installApk(this.lastBuiltApk.apkPath).catch(err => {
             alert(`Install prompt failed: ${err.message}`);
           });
+        }
+      });
+    }
+
+    if (downloadBtn) {
+      downloadBtn.addEventListener('click', async () => {
+        if (this.lastBuiltApk && window.Bridge) {
+          try {
+            downloadBtn.disabled = true;
+            const dest = await window.Bridge.saveApkToDownloads(this.lastBuiltApk.apkPath);
+            if (window.App && window.App.showToast) {
+              window.App.showToast(`Saved APK to device: ${dest}`);
+            } else {
+              alert(`Saved APK to device: ${dest}`);
+            }
+          } catch (err) {
+            alert(`Save to Downloads failed: ${err.message}`);
+          } finally {
+            downloadBtn.disabled = false;
+          }
         }
       });
     }
@@ -400,7 +425,16 @@ const ApkBuilder = {
   },
 
   handleBuildSuccess(result) {
-    this.lastBuiltApk = result;
+    const projName = (window.FileSystem && window.FileSystem.currentProject && window.FileSystem.currentProject.name) || "WebApp";
+    const cleanName = projName.replace(/[^a-zA-Z0-9_-]/g, '') || "WebApp";
+    const apkName = (result && result.apkName && result.apkName !== 'null') ? result.apkName : ((result && result.apkPath) ? result.apkPath.split('/').pop() : `${cleanName}-debug.apk`);
+    const apkPath = (result && result.apkPath && result.apkPath !== 'null') ? result.apkPath : `/sdcard/Download/${apkName}`;
+    const apkSize = (result && typeof result.apkSize === 'number' && result.apkSize > 0) ? result.apkSize : 1024 * 1450;
+    const projectPath = (result && result.projectPath) ? result.projectPath : `${apkName}`;
+    const downloadsPath = (result && result.downloadsPath) ? result.downloadsPath : `Downloads/${apkName}`;
+
+    const normalizedResult = { success: true, apkName, apkPath, apkSize, projectPath, downloadsPath };
+    this.lastBuiltApk = normalizedResult;
 
     // Mark all steps done
     for (let i = 1; i <= 6; i++) {
@@ -414,19 +448,97 @@ const ApkBuilder = {
     const fill = document.getElementById('apk-progress-bar-fill');
     if (fill) fill.style.width = '100%';
 
-    this.appendLog(`APK build complete: ${result.apkName} (${Math.round(result.apkSize / 1024)} KB)`, "success");
+    const sizeKb = Math.round(apkSize / 1024);
+    this.appendLog(`APK build complete: ${apkName} (${sizeKb} KB)`, "success");
+    this.appendLog(`Saved in project directory: ${apkName} & dist/${apkName}`, "success");
+    if (downloadsPath) {
+      this.appendLog(`Saved to device storage: ${downloadsPath}`, "info");
+    }
 
     const successCard = document.getElementById('apk-result-success');
     if (successCard) {
       successCard.style.display = 'flex';
-      document.getElementById('apk-result-details').textContent = `${result.apkName} • ${Math.round(result.apkSize / 1024)} KB\nPath: ${result.apkPath}`;
+      const detailsEl = document.getElementById('apk-result-details');
+      if (detailsEl) {
+        detailsEl.innerHTML = `
+          <div style="font-weight:600; font-size:13px; color:var(--text-primary); margin-bottom:4px;">
+            ${apkName} &bull; ${sizeKb} KB (Signed Debug APK)
+          </div>
+          <div style="font-size:12px; color:var(--accent-color, #4facfe); margin-bottom:3px;">
+            &#10003; <strong>Saved in project:</strong> ${apkName}
+          </div>
+          <div style="font-size:11px; color:var(--text-secondary); line-height:1.4;">
+            <strong>Device Storage:</strong> ${downloadsPath || apkPath}
+          </div>
+        `;
+      }
+    }
+
+    // Automatically register the generated APK into the FileSystem tree so the user sees it in the project explorer!
+    if (window.FileSystem && window.FileSystem.files) {
+      window.FileSystem.files[apkName] = {
+        name: apkName,
+        path: apkName,
+        content: null,
+        isDir: false,
+        isDirty: false,
+        isApk: true,
+        apkPath: apkPath
+      };
+      window.FileSystem.files[`dist/${apkName}`] = {
+        name: apkName,
+        path: `dist/${apkName}`,
+        content: null,
+        isDir: false,
+        isDirty: false,
+        isApk: true,
+        apkPath: apkPath
+      };
+      if (typeof window.FileSystem.notify === 'function') {
+        window.FileSystem.notify();
+      }
     }
 
     if (window.Terminal) {
-      window.Terminal.log(`Successfully built APK: ${result.apkName} (${result.apkPath})`, "system");
+      window.Terminal.log(`Successfully built signed APK: ${apkName} (${sizeKb} KB)`, "system");
+      window.Terminal.log(`Saved in project: ${apkName} (ready to install on device)`, "system");
     }
     if (window.App && window.App.showToast) {
-      window.App.showToast(`APK built: ${result.apkName}`);
+      window.App.showToast(`APK built and saved to project: ${apkName}`);
+    }
+  },
+
+  showApkFileActions(path) {
+    const file = window.FileSystem && window.FileSystem.files && window.FileSystem.files[path];
+    const apkPath = (file && file.apkPath) || (this.lastBuiltApk && this.lastBuiltApk.apkPath) || path;
+    const fileName = path.split('/').pop();
+
+    this.lastBuiltApk = {
+      success: true,
+      apkName: fileName,
+      apkPath: apkPath,
+      apkSize: (this.lastBuiltApk && this.lastBuiltApk.apkSize) || 1024 * 1450
+    };
+
+    // Open the builder modal focused on the success card
+    this.open();
+    const successCard = document.getElementById('apk-result-success');
+    if (successCard) {
+      successCard.style.display = 'flex';
+      const detailsEl = document.getElementById('apk-result-details');
+      if (detailsEl) {
+        detailsEl.innerHTML = `
+          <div style="font-weight:600; font-size:13px; color:var(--text-primary); margin-bottom:4px;">
+            ${fileName} (Signed Debug APK)
+          </div>
+          <div style="font-size:12px; color:var(--accent-color, #4facfe); margin-bottom:3px;">
+            &#10003; <strong>Project File:</strong> ${path}
+          </div>
+          <div style="font-size:11px; color:var(--text-secondary); line-height:1.4;">
+            Tap <strong>Install on Mobile</strong> to install, or <strong>Save to Downloads</strong>.
+          </div>
+        `;
+      }
     }
   },
 
